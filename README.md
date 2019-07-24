@@ -107,6 +107,22 @@ Classification using embeddings has its limits but for simple classification tas
 
 Teachable machine is merely a blank starting point which you can adapt to a variety of different uses. Comparing generic embeddings can be used in a variety of ways and are a very generic way to leverage the semantic recognition powers of a pre-trained network. The advantage is that you do not have to expensively retrain the network on thousands of images, but instead you directly teach the device as needed (especially when it gets it wrong, you add another training datapoint on the fly). The disadvantage is that it is somewhat less accurate, so for very high precision tasks you cannot go around true retraining, but in many cases working with embeddings can get you most of the way there.
 
+## Imprinting method
+Instead of the k-nearest neighbors algorithm we can also use an alternative 
+algorithm to train the Teachable Machine on device, called Imprinting. 
+To try it out call the alternate script below - the controls and UI are exactly the same as before.
+
+```bash
+sh run_imprinting.sh
+```
+
+Depending on the situation, one or the algorithm may work better, it’s worth 
+experimenting. If you want to learn more about how imprinting works, take a 
+look at https://coral.withgoogle.com/docs/edgetpu/retrain-classification-ondevice/
+
+
+### Next steps
+
 The project as it is just a shell, it lacks a true output. Think of ways the machine could indicate or communicate recognition of objects. In software you have a variety of options. It could play sounds ? It could send a tweet or an email or some other form of notification. For example you could try to teach it to recognize you and your housemates.
 
 You could also simply log data and serve the log using a simple python webserver. This way you could get stats or graphs of object recognition over time. Who empties the dishwasher more often ?

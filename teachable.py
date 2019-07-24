@@ -19,12 +19,13 @@ import sys
 import os
 import time
 
+from abc import abstractmethod
 from collections import deque, Counter
 from functools import partial
 
 os.environ['XDG_RUNTIME_DIR']='/run/user/1000'
 
-from embedding import kNNEmbeddingEngine
+from embedding import KNNEmbeddingEngine
 from PIL import Image
 
 import gstreamer
@@ -189,31 +190,17 @@ class UI_EdgeTpuDevBoard(UI):
 
 
 class TeachableMachine(object):
-  def __init__(self, model_path, ui, kNN=3, buffer_length=4):
+  """Abstract TeachableMachine class. Subclassed by specific method implementations."""
+  @abstractmethod
+  def __init__(self, model_path, ui):
     assert os.path.isfile(model_path), 'Model file %s not found'%model_path
-    self._engine = kNNEmbeddingEngine(model_path, kNN)
     self._ui = ui
-    self._buffer = deque(maxlen = buffer_length)
-    self._kNN = kNN
     self._start_time = time.time()
     self._frame_times = deque(maxlen=40)
 
-  def classify(self, img, svg):
-    # Classify current image and determine
-    emb = self._engine.DetectWithImage(img)
-    self._buffer.append(self._engine.kNNEmbedding(emb))
-    classification = Counter(self._buffer).most_common(1)[0][0]
-
-    # Interpret user button presses (if any)
-    debounced_buttons = self._ui.getDebouncedButtonState()
-    for i, b in enumerate(debounced_buttons):
-      if not b: continue
-      if i == 0: self._engine.clear() # Hitting button 0 resets
-      else : self._engine.addEmbedding(emb, i) # otherwise the button # is the class
-
+  def visualize(self, classification, svg):
     self._frame_times.append(time.time())
     fps = len(self._frame_times)/float(self._frame_times[-1] - self._frame_times[0] + 0.001)
-
     # Print/Display results
     self._ui.setOnlyLED(classification)
     classes = ['--', 'One', 'Two', 'Three', 'Four']
@@ -224,15 +211,70 @@ class TeachableMachine(object):
     svg.add(svg.text(status, insert=(26, 26), fill='black', font_size='20'))
     svg.add(svg.text(status, insert=(25, 25), fill='white', font_size='20'))
 
+  def classify(self):
+    raise NotImplementedError()
+
+class TeachableMachineKNN(TeachableMachine):
+  def __init__(self, model_path, ui, KNN=3):
+    TeachableMachine.__init__(self, model_path, ui)
+    self._buffer = deque(maxlen = 4)
+    self._engine = KNNEmbeddingEngine(model_path, KNN)
+
+  def classify(self, img, svg):
+    # Classify current image and determine
+    emb = self._engine.DetectWithImage(img)
+    self._buffer.append(self._engine.kNNEmbedding(emb))
+    classification = Counter(self._buffer).most_common(1)[0][0]
+    # Interpret user button presses (if any)
+    debounced_buttons = self._ui.getDebouncedButtonState()
+    for i, b in enumerate(debounced_buttons):
+      if not b: continue
+      if i == 0: self._engine.clear() # Hitting button 0 resets
+      else : self._engine.addEmbedding(emb, i) # otherwise the button # is the class
+    # Hitting exactly all 4 class buttons simultaneously quits the program.
+    if sum(filter(lambda x:x, debounced_buttons[1:])) == 4 and not debounced_buttons[0]:
+      self.clean_shutdown = True
+      return True # return True to shut down pipeline
+    return self.visualize(classification, svg)
+
+class TeachableMachineImprinting(TeachableMachine):
+  def __init__(self, model_path, ui, output_path, keep_classes):
+    TeachableMachine.__init__(self, model_path, ui)
+    self._BATCHSIZE = 1 # batch size for the engine to train for once.
+    from imprinting import DemoImprintingEngine
+    self._engine = DemoImprintingEngine(model_path, output_path, keep_classes, self._BATCHSIZE)
+
+  def classify(self, img, svg):
+    # Classifty current image and determine
+    classification = self._engine.classify(img)
+    # Interpret user button presses (if any)
+    debounced_buttons = self._ui.getDebouncedButtonState()
+    for i, b in enumerate(debounced_buttons):
+      if not b: continue
+      if i == 0: self._engine.clear() # Hitting button 0 resets
+      else : self._engine.addImage(img, i) # otherwise the button # is the class
+    # Hitting exactly all 4 class buttons simultaneously quits the program.
+    if sum(filter(lambda x:x, debounced_buttons[1:])) == 4 and not debounced_buttons[0]:
+      self.clean_shutdown = True
+      return True # return True to shut down pipeline
+    return self.visualize(classification, svg)
 
 def main(args):
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', help='File path of Tflite model.',
-                        default='mobilenet_quant_v1_224_headless_edgetpu.tflite')
+                        default='models/mobilenet_quant_v1_224_headless_edgetpu.tflite')
     parser.add_argument('--testui', dest='testui', action='store_true',
                         help='Run test of UI. Ctrl-C to abort.')
     parser.add_argument('--keyboard', dest='keyboard', action='store_true',
                         help='Run test of UI. Ctrl-C to abort.')
+    parser.add_argument('--method', dest='method',
+                        help='method for transfer learning, support knn or imprinting',
+                        default='knn',
+                        choices=['knn', 'imprinting'])
+    parser.add_argument('--outputmodel', help='File path of output Tflite model, only for imprinting method.',
+                        default='output.tflite')
+    parser.add_argument('--keepclasses', dest='keepclasses', action='store_true',
+                        help='Whether to keep base model classes, only for imprinting method.')
     args = parser.parse_args()
 
     # The UI differs a little depending on the system because the GPIOs
@@ -254,7 +296,10 @@ def main(args):
         return
 
     print('Initialize Model...')
-    teachable = TeachableMachine(args.model, ui)
+    if args.method == 'knn':
+      teachable = TeachableMachineKNN(args.model, ui)
+    else:
+      teachable = TeachableMachineImprinting(args.model, ui, args.outputmodel, args.keepclasses)
 
     print('Start Pipeline.')
     result = gstreamer.run_pipeline(teachable.classify)

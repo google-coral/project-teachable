@@ -55,14 +55,14 @@ class EmbeddingEngine(BasicEngine):
     if (input_tensor_shape.size != 4 or input_tensor_shape[3] != 3 or
         input_tensor_shape[0] != 1):
       raise RuntimeError(
-          'Invalid input tensor shape! Expected: [1, width, height, 3]')
-    required_image_size = (input_tensor_shape[1], input_tensor_shape[2])
+          'Invalid input tensor shape! Expected: [1, height, width, 3]')
+    required_image_size = (input_tensor_shape[2], input_tensor_shape[1])
     with img.resize(required_image_size, Image.NEAREST) as resized_img:
       input_tensor = np.asarray(resized_img).flatten()
       return self.RunInference(input_tensor)[1]
 
 
-class kNNEmbeddingEngine(EmbeddingEngine):
+class KNNEmbeddingEngine(EmbeddingEngine):
   """Extends embedding engine to also provide kNearest Neighbor detection.
 
      This class maintains an in-memory store of embeddings and provides
