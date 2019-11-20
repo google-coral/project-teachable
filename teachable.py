@@ -182,7 +182,7 @@ class UI_EdgeTpuDevBoard(UI):
 
   def setLED(self, index, state):
     """Abstracts away mix of GPIO and PWM LEDs."""
-    if type(self._LEDs[index]) is GPIO: self._LEDs[index].write(not state)
+    if isinstance(self._LEDs[index], GPIO): self._LEDs[index].write(not state)
     else: self._LEDs[index].duty_cycle = 0.0 if state else 1.0
 
   def getButtonState(self):
